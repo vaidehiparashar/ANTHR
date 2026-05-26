@@ -1,0 +1,577 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+
+enum Role {
+  SUPER_ADMIN
+  HR_ADMIN
+  MANAGER
+  EMPLOYEE
+  INTERN
+  RECRUITER
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERN
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+  ON_LEAVE
+  TERMINATED
+  PROBATION
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  HALF_DAY
+  ON_LEAVE
+  HOLIDAY
+  WEEKEND
+}
+
+enum LeaveType {
+  ANNUAL
+  SICK
+  MATERNITY
+  PATERNITY
+  UNPAID
+  EMERGENCY
+  STUDY
+  BEREAVEMENT
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum PayrollStatus {
+  DRAFT
+  PROCESSED
+  PAID
+  CANCELLED
+}
+
+enum RecruitmentStatus {
+  OPEN
+  IN_PROGRESS
+  FILLED
+  CANCELLED
+  ON_HOLD
+}
+
+enum ApplicationStatus {
+  APPLIED
+  SCREENING
+  INTERVIEW_SCHEDULED
+  INTERVIEWED
+  ASSESSMENT
+  OFFER_EXTENDED
+  OFFER_ACCEPTED
+  OFFER_REJECTED
+  REJECTED
+  WITHDRAWN
+}
+
+enum InternshipStatus {
+  ACTIVE
+  COMPLETED
+  TERMINATED
+  EXTENDED
+}
+
+enum NotificationType {
+  LEAVE_REQUEST
+  LEAVE_APPROVED
+  LEAVE_REJECTED
+  ATTENDANCE_ALERT
+  PAYROLL_PROCESSED
+  RECRUITMENT_UPDATE
+  ANNOUNCEMENT
+  TASK_ASSIGNED
+  BIRTHDAY
+  ANNIVERSARY
+  SYSTEM
+}
+
+enum NotificationPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+// ─────────────────────────────────────────────
+// CORE MODELS
+// ─────────────────────────────────────────────
+
+model Department {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  code        String   @unique
+  description String?
+  headId      String?
+  budget      Decimal? @db.Decimal(15, 2)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  employees   Employee[]
+  head        Employee?       @relation("DepartmentHead", fields: [headId], references: [id])
+  jobPostings JobPosting[]
+
+  @@map("departments")
+}
+
+model Position {
+  id              String   @id @default(uuid())
+  title           String
+  code            String   @unique
+  description     String?
+  minSalary       Decimal? @db.Decimal(15, 2)
+  maxSalary       Decimal? @db.Decimal(15, 2)
+  requirements    String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  employees   Employee[]
+  jobPostings JobPosting[]
+
+  @@map("positions")
+}
+
+model Employee {
+  id               String         @id @default(uuid())
+  employeeId       String         @unique
+  userId           String         @unique
+  departmentId     String
+  positionId       String
+  managerId        String?
+  employmentType   EmploymentType @default(FULL_TIME)
+  status           EmployeeStatus @default(ACTIVE)
+  hireDate         DateTime
+  probationEndDate DateTime?
+  terminationDate  DateTime?
+  terminationNote  String?
+  workLocation     String?
+  salary           Decimal        @db.Decimal(15, 2)
+  currency         String         @default("USD")
+  bankName         String?
+  bankAccountNo    String?
+  bankRoutingNo    String?
+  taxId            String?
+  ssn              String?
+  emergencyName    String?
+  emergencyPhone   String?
+  emergencyRelation String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  user        User       @relation(fields: [userId], references: [id])
+  department  Department @relation(fields: [departmentId], references: [id])
+  position    Position   @relation(fields: [positionId], references: [id])
+  manager     Employee?  @relation("ManagerSubordinates", fields: [managerId], references: [id])
+  subordinates Employee[] @relation("ManagerSubordinates")
+  headOf       Department[] @relation("DepartmentHead")
+
+  attendances    Attendance[]
+  leaveRequests  LeaveRequest[]
+  leaveBalances  LeaveBalance[]
+  payrolls       Payroll[]
+  internship     Internship?
+  documents      Document[]
+  sentNotifications     Notification[] @relation("NotificationSender")
+  receivedNotifications Notification[] @relation("NotificationRecipient")
+
+  @@map("employees")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  password     String
+  firstName    String
+  lastName     String
+  phone        String?
+  avatar       String?
+  role         Role     @default(EMPLOYEE)
+  isActive     Boolean  @default(true)
+  isVerified   Boolean  @default(false)
+  lastLoginAt  DateTime?
+  refreshToken String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  employee     Employee?
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────
+// ATTENDANCE
+// ─────────────────────────────────────────────
+
+model Attendance {
+  id          String           @id @default(uuid())
+  employeeId  String
+  date        DateTime         @db.Date
+  clockIn     DateTime?
+  clockOut    DateTime?
+  inTime      String?
+  outTime     String?
+  totalHours  Decimal?         @db.Decimal(5, 2)
+  overtime    Decimal?         @db.Decimal(5, 2)
+  status      AttendanceStatus @default(ABSENT)
+  ipAddress   String?
+  location    String?
+  note        String?
+  isManual    Boolean          @default(false)
+  approvedBy  String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, date])
+  @@map("attendances")
+}
+
+// ─────────────────────────────────────────────
+// LEAVE
+// ─────────────────────────────────────────────
+
+model LeavePolicy {
+  id            String    @id @default(uuid())
+  leaveType     LeaveType @unique
+  daysAllowed   Int
+  carryForward  Boolean   @default(false)
+  maxCarryDays  Int       @default(0)
+  isPaid        Boolean   @default(true)
+  description   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("leave_policies")
+}
+
+model LeaveBalance {
+  id          String    @id @default(uuid())
+  employeeId  String
+  leaveType   LeaveType
+  year        Int
+  allocated   Int
+  used        Int       @default(0)
+  pending     Int       @default(0)
+  remaining   Int
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, leaveType, year])
+  @@map("leave_balances")
+}
+
+model LeaveRequest {
+  id           String      @id @default(uuid())
+  employeeId   String
+  leaveType    LeaveType
+  startDate    DateTime    @db.Date
+  endDate      DateTime    @db.Date
+  totalDays    Int
+  reason       String
+  status       LeaveStatus @default(PENDING)
+  approvedById String?
+  approvedAt   DateTime?
+  rejectReason String?
+  attachments  String[]
+  isUrgent     Boolean     @default(false)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  employee   Employee  @relation(fields: [employeeId], references: [id])
+
+  @@map("leave_requests")
+}
+
+// ─────────────────────────────────────────────
+// PAYROLL
+// ─────────────────────────────────────────────
+
+model Payroll {
+  id              String        @id @default(uuid())
+  payrollNumber   String        @unique
+  employeeId      String
+  month           Int
+  year            Int
+  basicSalary     Decimal       @db.Decimal(15, 2)
+  allowances      Decimal       @default(0) @db.Decimal(15, 2)
+  overtime        Decimal       @default(0) @db.Decimal(15, 2)
+  bonus           Decimal       @default(0) @db.Decimal(15, 2)
+  grossSalary     Decimal       @db.Decimal(15, 2)
+  taxDeduction    Decimal       @default(0) @db.Decimal(15, 2)
+  providentFund   Decimal       @default(0) @db.Decimal(15, 2)
+  healthInsurance Decimal       @default(0) @db.Decimal(15, 2)
+  otherDeductions Decimal       @default(0) @db.Decimal(15, 2)
+  totalDeductions Decimal       @db.Decimal(15, 2)
+  netSalary       Decimal       @db.Decimal(15, 2)
+  currency        String        @default("USD")
+  status          PayrollStatus @default(DRAFT)
+  paidAt          DateTime?
+  paymentMethod   String?
+  transactionRef  String?
+  processedById   String?
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, month, year])
+  @@map("payrolls")
+}
+
+model SalaryRevision {
+  id           String   @id @default(uuid())
+  employeeId   String
+  oldSalary    Decimal  @db.Decimal(15, 2)
+  newSalary    Decimal  @db.Decimal(15, 2)
+  effectiveDate DateTime
+  reason       String
+  approvedById String?
+  createdAt    DateTime @default(now())
+
+  @@map("salary_revisions")
+}
+
+// ─────────────────────────────────────────────
+// RECRUITMENT
+// ─────────────────────────────────────────────
+
+model JobPosting {
+  id              String            @id @default(uuid())
+  jobCode         String            @unique
+  title           String
+  departmentId    String
+  positionId      String
+  description     String
+  requirements    String
+  responsibilities String
+  benefits        String?
+  employmentType  EmploymentType
+  location        String
+  isRemote        Boolean           @default(false)
+  salaryMin       Decimal?          @db.Decimal(15, 2)
+  salaryMax       Decimal?          @db.Decimal(15, 2)
+  currency        String            @default("USD")
+  openings        Int               @default(1)
+  deadline        DateTime?
+  status          RecruitmentStatus @default(OPEN)
+  postedById      String?
+  closedAt        DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  department   Department    @relation(fields: [departmentId], references: [id])
+  position     Position      @relation(fields: [positionId], references: [id])
+  applications Application[]
+
+  @@map("job_postings")
+}
+
+model Application {
+  id              String            @id @default(uuid())
+  applicationNo   String            @unique
+  jobPostingId    String
+  firstName       String
+  lastName        String
+  email           String
+  phone           String?
+  resumeUrl       String?
+  coverLetter     String?
+  currentEmployer String?
+  currentSalary   Decimal?          @db.Decimal(15, 2)
+  expectedSalary  Decimal?          @db.Decimal(15, 2)
+  noticePeriod    Int?
+  yearsExperience Int?
+  status          ApplicationStatus @default(APPLIED)
+  source          String?
+  notes           String?
+  assignedToId    String?
+  interviewDate   DateTime?
+  offerDate       DateTime?
+  offerSalary     Decimal?          @db.Decimal(15, 2)
+  rejectedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  jobPosting JobPosting   @relation(fields: [jobPostingId], references: [id])
+  interviews Interview[]
+
+  @@map("applications")
+}
+
+model Interview {
+  id            String   @id @default(uuid())
+  applicationId String
+  round         Int      @default(1)
+  interviewType String
+  scheduledAt   DateTime
+  duration      Int
+  interviewerIds String[]
+  location      String?
+  meetingLink   String?
+  status        String   @default("SCHEDULED")
+  feedback      String?
+  rating        Int?
+  recommendation String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  application Application @relation(fields: [applicationId], references: [id])
+
+  @@map("interviews")
+}
+
+// ─────────────────────────────────────────────
+// INTERNSHIP
+// ─────────────────────────────────────────────
+
+model Internship {
+  id             String           @id @default(uuid())
+  employeeId     String           @unique
+  programName    String
+  institution    String
+  startDate      DateTime
+  endDate        DateTime
+  supervisorId   String?
+  stipend        Decimal?         @db.Decimal(15, 2)
+  currency       String           @default("USD")
+  status         InternshipStatus @default(ACTIVE)
+  objectives     String?
+  evaluation     String?
+  rating         Int?
+  certificateUrl String?
+  isConverted    Boolean          @default(false)
+  notes          String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@map("internships")
+}
+
+// ─────────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────────
+
+model Notification {
+  id          String               @id @default(uuid())
+  type        NotificationType
+  priority    NotificationPriority @default(MEDIUM)
+  title       String
+  message     String
+  data        Json?
+  senderId    String?
+  recipientId String
+  isRead      Boolean              @default(false)
+  readAt      DateTime?
+  createdAt   DateTime             @default(now())
+
+  sender    Employee? @relation("NotificationSender", fields: [senderId], references: [id])
+  recipient Employee  @relation("NotificationRecipient", fields: [recipientId], references: [id])
+
+  @@map("notifications")
+}
+
+model Announcement {
+  id          String   @id @default(uuid())
+  title       String
+  content     String
+  authorId    String?
+  isPublished Boolean  @default(true)
+  isPinned    Boolean  @default(false)
+  targetRoles Role[]
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("announcements")
+}
+
+// ─────────────────────────────────────────────
+// DOCUMENTS
+// ─────────────────────────────────────────────
+
+model Document {
+  id          String   @id @default(uuid())
+  employeeId  String
+  title       String
+  type        String
+  fileUrl     String
+  fileSize    Int?
+  mimeType    String?
+  isVerified  Boolean  @default(false)
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@map("documents")
+}
+
+// ─────────────────────────────────────────────
+// AUDIT
+// ─────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String
+  action     String
+  entity     String
+  entityId   String?
+  oldValues  Json?
+  newValues  Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+model Holiday {
+  id          String   @id @default(uuid())
+  name        String
+  date        DateTime @db.Date
+  isOptional  Boolean  @default(false)
+  description String?
+  createdAt   DateTime @default(now())
+
+  @@map("holidays")
+}
